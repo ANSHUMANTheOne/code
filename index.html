@@ -34,9 +34,14 @@
       letter-spacing:0.5px;
     }
 
+    .engine{
+      font-size:12px;
+      opacity:0.8;
+    }
+
     textarea{
       width:100%;
-      height:65vh;
+      height:60vh;
       background:#061625;
       color:var(--light);
       border:none;
@@ -45,8 +50,13 @@
       outline:none;
     }
 
-    button{
+    .controls{
+      display:flex;
+      gap:10px;
       margin:10px;
+    }
+
+    button{
       padding:10px 14px;
       background:linear-gradient(90deg,var(--sky),var(--cyan));
       border:none;
@@ -62,6 +72,8 @@
       padding:12px;
       font-family:monospace;
       border-top:1px solid rgba(224,242,254,0.1);
+      overflow:auto;
+      white-space:pre-wrap;
     }
   </style>
 </head>
@@ -70,21 +82,93 @@
 
 <div class="topbar">
   <div class="brand">Beacon of Unity Code</div>
-  <div>Theme Matched IDE</div>
+  <div class="engine" id="engineStatus">Engine: PYODIDE</div>
 </div>
 
 <textarea id="code">print("Hello Beacon of Unity")</textarea>
 
-<button onclick="runCode()">Run</button>
+<div class="controls">
+  <button onclick="runCode()">Run</button>
+  <button onclick="toggleEngine()">Switch Engine</button>
+</div>
 
 <pre class="output" id="output">Output will appear here...</pre>
 
+<!-- PYODIDE -->
+<script src="https://cdn.jsdelivr.net/pyodide/v0.23.4/full/pyodide.js"></script>
+
 <script>
-function runCode(){
-  let code = document.getElementById("code").value;
-  document.getElementById("output").innerText =
-    "Running in UI mode (Step 2)\n\n" + code;
+
+let engine = "pyodide";
+let pyodideReady = loadPyodide();
+
+/* SWITCH ENGINE */
+function toggleEngine(){
+  engine = engine === "pyodide" ? "server" : "pyodide";
+  document.getElementById("engineStatus").innerText =
+    "Engine: " + engine.toUpperCase();
 }
+
+/* PYODIDE RUN */
+async function runPyodide(code){
+  let pyodide = await pyodideReady;
+
+  pyodide.runPython(`
+import sys
+from io import StringIO
+sys.stdout = StringIO()
+
+try:
+    exec("""${code}""")
+except Exception as e:
+    print(e)
+
+output = sys.stdout.getvalue()
+  `);
+
+  return pyodide.globals.get("output");
+}
+
+/* SERVER RUN (Judge0 via backend proxy - STEP 5 required) */
+async function runServer(code){
+
+  const res = await fetch("https://YOUR-BACKEND-URL/run", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify({ code })
+  });
+
+  const data = await res.json();
+  return data.output || data.stdout || data.stderr || "No output";
+}
+
+/* MAIN RUN */
+async function runCode(){
+
+  let code = document.getElementById("code").value;
+  let outputBox = document.getElementById("output");
+
+  outputBox.innerText = "Running...";
+
+  try{
+
+    let result;
+
+    if(engine === "pyodide"){
+      result = await runPyodide(code);
+    } else {
+      result = await runServer(code);
+    }
+
+    outputBox.innerText = result;
+
+  } catch(err){
+    outputBox.innerText = "Error: " + err;
+  }
+}
+
 </script>
 
 </body>
