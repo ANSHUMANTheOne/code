@@ -129,10 +129,10 @@ output = sys.stdout.getvalue()
   return pyodide.globals.get("output");
 }
 
-/* SERVER RUN (Judge0 via backend proxy - STEP 5 required) */
+/* SERVER RUN (FIXED URL) */
 async function runServer(code){
 
-  const res = await fetch("https://YOUR-BACKEND-URL/run", {
+  const res = await fetch("https://code-gold-two.vercel.app/api/run", {
     method: "POST",
     headers: {
       "Content-Type": "application/json"
