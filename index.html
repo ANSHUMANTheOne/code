@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="en" data-theme="dark">
+<html lang="en" data-theme="light">
 <head>
 <meta charset="UTF-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
@@ -270,11 +270,8 @@ body::before{content:'';position:fixed;inset:0;background-image:linear-gradient(
       <button class="hbtn" onclick="downloadCode()">
         <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>Download
       </button>
-      <button class="hbtn" onclick="saveToLocal()">
-        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>Save
-      </button>
       <div class="hsep" style="margin:0 2px"></div>
-      <div class="dial-mini" onclick="toggleTheme()"><span id="ti">🌙</span></div>
+      <div class="dial-mini" onclick="toggleTheme()"><span id="ti">☀️</span></div>
       <button class="hbtn run" onclick="runCode()">
         <svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor"><polygon points="5 3 19 12 5 21 5 3"/></svg>
         <span>Run</span>
@@ -293,11 +290,8 @@ body::before{content:'';position:fixed;inset:0;background-image:linear-gradient(
       <div class="tab active" id="tab-main" onclick="switchTab('main')">
         <div class="lang-dot"></div><div class="tab-name">main.py</div>
       </div>
-      <div class="tab" id="tab-scratch" onclick="switchTab('scratch')">
-        <div class="lang-dot" style="background:var(--cyan)"></div><div class="tab-name">scratch.py</div>
-      </div>
-      <div class="tab-add" onclick="newTab()">
-        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+      <div class="tab" id="tab-intro" onclick="switchTab('intro')">
+        <div class="lang-dot" style="background:var(--cyan)"></div><div class="tab-name">introduction.py</div>
       </div>
     </div>
     <div id="editor-section">
@@ -432,11 +426,15 @@ function toast(msg){
 /* ═══ PYODIDE ══════════════════════════════════════════════ */
 let pyodide=null,pyodideReady=null;
 const loMsg=document.getElementById('lo-msg'),overlay=document.getElementById('lo');
+
 async function initPyodide(){
   loMsg.textContent='Loading Pyodide runtime…';
-  pyodide=await loadPyodide({stdout:txt=>writeLine(txt,'stdout'),stderr:txt=>writeLine(txt,'stderr')});
+  pyodide = await loadPyodide();
   loMsg.textContent='Setting up environment…';
-  await pyodide.runPythonAsync('import sys,io,builtins');
+  // Set up stream capture helpers in Python
+  await pyodide.runPythonAsync(`
+import sys, io, builtins
+`);
   loMsg.textContent='Ready!';
   setTimeout(()=>overlay.classList.add('gone'),700);
   setStatus('Ready');
@@ -448,7 +446,7 @@ function setStatus(msg){document.getElementById('sb-status').textContent=msg;}
 /* ═══ TERMINAL ═════════════════════════════════════════════ */
 const terminal=document.getElementById('terminal');
 function writeLine(txt,cls){
-  if(txt===null||txt===undefined)return;
+  if(txt===null||txt===undefined||txt==='')return;
   const icons={stderr:'✕',info:'›',success:'✔',echo:'←',stdout:' ',warn:'!'};
   const d=document.createElement('div');d.className='term-line';
   const p=document.createElement('span');p.className='term-pre';p.textContent=icons[cls]||' ';
@@ -457,7 +455,7 @@ function writeLine(txt,cls){
 }
 function clearOutput(){terminal.innerHTML='';toast('Terminal cleared');}
 
-/* ═══ INPUT SYSTEM (Thonny-style) ══════════════════════════ */
+/* ═══ INPUT SYSTEM (Thonny-style inline) ═══════════════════ */
 const inputRow=document.getElementById('input-row');
 const termInput=document.getElementById('term-input');
 const ipl=document.getElementById('ipl');
@@ -465,17 +463,20 @@ let currentInput=null,inputQueue=[];
 
 function requestInput(promptMsg){
   return new Promise(resolve=>{
-    ipl.textContent=(promptMsg||'')+' ›';
+    const label = promptMsg||'';
+    ipl.textContent = label + ' ›';
     inputRow.classList.add('visible');
-    termInput.value='';termInput.focus();
+    termInput.value='';
+    termInput.focus();
     if(currentInput) inputQueue.push(resolve);
     else currentInput=resolve;
   });
 }
 function submitInput(){
   const val=termInput.value;
-  const label=ipl.textContent.replace(' ›','');
-  writeLine(label+val,'echo');termInput.value='';
+  const label=ipl.textContent.replace(/ ›$/,'');
+  writeLine(label+val,'echo');
+  termInput.value='';
   const resolve=currentInput;currentInput=null;
   if(inputQueue.length>0) currentInput=inputQueue.shift();
   else inputRow.classList.remove('visible');
@@ -483,84 +484,139 @@ function submitInput(){
 }
 termInput.addEventListener('keydown',e=>{if(e.key==='Enter'){e.preventDefault();submitInput();}});
 
-/* ═══ RUN CODE ═════════════════════════════════════════════ */
+/* ═══ RUN CODE — correct stdout capture via globals ════════ */
 let isRunning=false;
+
 async function runCode(){
   if(isRunning){toast('Already running…');return;}
   await pyodideReady;
-  const code=document.getElementById('code').value;
-  isRunning=true;setStatus('Running…');
-  inputQueue=[];currentInput=null;inputRow.classList.remove('visible');
-  clearOutput();writeLine('▶  Execution started','info');
-  pyodide.globals.set('__js_input__',(msg)=>requestInput(msg));
-  await pyodide.runPythonAsync(`
-import builtins,sys
-from js import __js_input__
-class _AI:
-  async def __call__(self,prompt=""):
-    return await __js_input__(str(prompt))
-builtins.input=_AI()
-sys.stdout=sys.__stdout__;sys.stderr=sys.__stderr__
-`);
-  const esc=code.replace(/\\/g,'\\\\').replace(/"""/g,'\\"\\"\\"').replace(/`/g,'\\`');
-  const runner=`
-import builtins,sys,io
-from js import __js_input__
-class _AI:
-  async def __call__(self,prompt=""):
-    return await __js_input__(str(prompt))
-builtins.input=_AI()
-_code="""${esc}"""
-_o=io.StringIO();_e=io.StringIO()
-_oo=sys.stdout;_oe=sys.stderr
-sys.stdout=_o;sys.stderr=_e
+  if(!pyodide){toast('Engine not ready yet…');return;}
+
+  const userCode = document.getElementById('code').value;
+  isRunning=true;
+  setStatus('Running…');
+  inputQueue=[];currentInput=null;
+  inputRow.classList.remove('visible');
+  clearOutput();
+  writeLine('▶  Execution started','info');
+
+  // Pass code safely via globals — no string escaping needed
+  pyodide.globals.set('__user_code__', userCode);
+
+  // Pass the JS input function
+  pyodide.globals.set('__js_input__', (msg) => requestInput(String(msg||'')));
+
+  // Line-by-line stdout callback
+  pyodide.globals.set('__js_stdout__', (line) => {
+    // called for each chunk written to stdout
+    String(line).split('\n').forEach(l => writeLine(l, 'stdout'));
+  });
+  pyodide.globals.set('__js_stderr__', (line) => {
+    String(line).split('\n').forEach(l => { if(l) writeLine(l, 'stderr'); });
+  });
+
+  try {
+    await pyodide.runPythonAsync(`
+import sys, io, builtins
+
+# ── async input shim ──────────────────────────────────────
+class _AsyncInput:
+    async def __call__(self, prompt=""):
+        import js
+        val = await js.__js_input__(str(prompt))
+        return str(val)
+
+builtins.input = _AsyncInput()
+
+# ── stdout/stderr capture ────────────────────────────────
+class _JSWriter:
+    def __init__(self, cb_name):
+        self._cb = cb_name
+        self._buf = ""
+    def write(self, text):
+        import js
+        if text:
+            getattr(js, self._cb)(text)
+    def flush(self): pass
+
+_old_out = sys.stdout
+_old_err = sys.stderr
+sys.stdout = _JSWriter("__js_stdout__")
+sys.stderr  = _JSWriter("__js_stderr__")
+
 try:
-  exec(compile(_code,"<beacon>","exec"),{})
-except Exception as _ex:
-  sys.stderr.write(type(_ex).__name__+": "+str(_ex))
+    exec(compile(__user_code__, "<beacon>", "exec"), {})
+except SystemExit:
+    pass
+except Exception as _e:
+    import traceback
+    sys.stderr.write(traceback.format_exc())
 finally:
-  sys.stdout=_oo;sys.stderr=_oe
-__ov__=_o.getvalue();__ev__=_e.getvalue()
-`;
-  try{
-    await pyodide.runPythonAsync(runner);
-    const so=pyodide.globals.get('__ov__')||'';
-    const se=pyodide.globals.get('__ev__')||'';
-    if(so.trim()) so.split('\n').forEach(l=>{if(l!=='')writeLine(l,'stdout');});
-    if(se.trim()) se.split('\n').forEach(l=>{if(l!=='')writeLine(l,'stderr');});
-    const hadErr=se.trim().length>0;
-    writeLine(hadErr?'✕  Finished with errors':'✔  Execution complete',hadErr?'stderr':'success');
-    setStatus(hadErr?'Errors':'Ready');
-  }catch(err){writeLine('Runtime: '+err,'stderr');setStatus('Error');}
-  isRunning=false;inputRow.classList.remove('visible');
+    sys.stdout = _old_out
+    sys.stderr = _old_err
+`);
+    writeLine('✔  Done','success');
+    setStatus('Ready');
+  } catch(err) {
+    writeLine('Runtime error: '+err,'stderr');
+    setStatus('Error');
+  }
+
+  isRunning=false;
+  inputRow.classList.remove('visible');
 }
 
 /* ═══ FILE ACTIONS ═════════════════════════════════════════ */
 function copyCode(){navigator.clipboard.writeText(document.getElementById('code').value);toast('Code copied! ✓');}
 function downloadCode(){
   const blob=new Blob([document.getElementById('code').value],{type:'text/plain'});
-  const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=(curTab||'main')+'.py';a.click();toast('Downloaded!');
+  const a=document.createElement('a');a.href=URL.createObjectURL(blob);
+  a.download=(curTab||'main')+'.py';a.click();toast('Downloaded!');
 }
-function saveToLocal(){localStorage.setItem('bou_code_'+(curTab||'main'),document.getElementById('code').value);toast('Saved locally ✓');}
 
-/* ═══ TABS ══════════════════════════════════════════════════ */
-let tabs={main:document.getElementById('code').value,scratch:'# scratch.py\nprint("Scratch pad")'};
+/* ═══ TABS — fixed, no rename, no close ════════════════════ */
+const TAB_CONTENTS = {
+  main: document.getElementById('code').value,
+  intro: `# introduction.py
+# ─────────────────────────────────────────────────────────
+#   Beacon of Unity Code
+#   A browser-based Python IDE — 100% powered by Pyodide.
+#   Created by Anshuman Tripathy
+# ─────────────────────────────────────────────────────────
+
+print("=" * 48)
+print("  Beacon of Unity Code")
+print("  Created by Anshuman Tripathy")
+print("=" * 48)
+print()
+print("This IDE runs Python entirely in your browser.")
+print("No server. No backend. Just Pyodide. 🚀")
+print()
+print("Features:")
+features = [
+    "✅ Full Python 3.11 via Pyodide",
+    "✅ Inline terminal-style input()",
+    "✅ Copy & Download your code",
+    "✅ Light / Dark mode",
+    "✅ Beacon mascot physics engine",
+]
+for f in features:
+    print(" ", f)
+print()
+print("Ctrl + Enter  →  Run your code")
+print("Happy coding! 🌟")
+`
+};
 let curTab='main';
+
 function switchTab(name){
-  tabs[curTab]=document.getElementById('code').value;
+  // save current
+  TAB_CONTENTS[curTab]=document.getElementById('code').value;
+  // update tab styling
   document.querySelectorAll('.tab').forEach(t=>t.classList.toggle('active',t.id==='tab-'+name));
-  curTab=name;document.getElementById('code').value=tabs[name]||'';updateLN();
-}
-let tabN=2;
-function newTab(){
-  const name='file'+(++tabN);tabs[name]='# '+name+'.py\n';
-  const el=document.createElement('div');el.className='tab';el.id='tab-'+name;
-  el.innerHTML=`<div class="lang-dot" style="background:var(--sky3)"></div><div class="tab-name">${name}.py</div>`;
-  el.addEventListener('click',()=>switchTab(name));
-  el.addEventListener('mouseenter',()=>document.body.classList.add('hov'));
-  el.addEventListener('mouseleave',()=>document.body.classList.remove('hov'));
-  document.getElementById('tabbar').insertBefore(el,document.querySelector('.tab-add'));
-  switchTab(name);
+  curTab=name;
+  document.getElementById('code').value=TAB_CONTENTS[name]||'';
+  updateLN();
 }
 
 /* ═══ LINE NUMBERS ══════════════════════════════════════════ */
@@ -588,8 +644,6 @@ codeEl.addEventListener('keydown',e=>{
   if((e.ctrlKey||e.metaKey)&&e.key==='Enter'){e.preventDefault();runCode();}
 });
 updateLN();
-window.addEventListener('load',()=>{const s=localStorage.getItem('bou_code_main');if(s){codeEl.value=s;updateLN();}});
-window.addEventListener('beforeunload',()=>{localStorage.setItem('bou_code_'+(curTab||'main'),codeEl.value);});
 
 /* ═══ RESIZER ═══════════════════════════════════════════════ */
 const resizer=document.getElementById('resizer'),outputPanel=document.getElementById('output-panel');
