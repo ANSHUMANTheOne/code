@@ -121,6 +121,8 @@ body::before{content:'';position:fixed;inset:0;background-image:linear-gradient(
 .out-actions{display:flex;gap:3px;margin-left:auto}
 .out-btn{padding:3px 9px;background:transparent;border:1px solid transparent;border-radius:50px;color:var(--muted);font-size:.72rem;font-family:'DM Sans',sans-serif;cursor:none;transition:all .2s;display:flex;align-items:center;gap:4px}
 .out-btn:hover{border-color:var(--edge);color:var(--text);background:rgba(14,165,233,.07)}
+.out-btn.run-btn{background:rgba(14,165,233,.12);border:1px solid rgba(14,165,233,.35);color:var(--blue);font-family:'Syne',sans-serif;font-weight:700}
+.out-btn.run-btn:hover{background:rgba(14,165,233,.22);border-color:rgba(14,165,233,.6);box-shadow:0 2px 12px rgba(14,165,233,.25)}
 #terminal{flex:1;overflow-y:auto;padding:10px 16px;font-family:'JetBrains Mono',monospace;font-size:12.5px;line-height:1.65;scrollbar-width:thin;scrollbar-color:var(--edge) transparent}
 #terminal::-webkit-scrollbar{width:5px}
 #terminal::-webkit-scrollbar-thumb{background:var(--edge);border-radius:3px}
@@ -272,10 +274,6 @@ body::before{content:'';position:fixed;inset:0;background-image:linear-gradient(
       </button>
       <div class="hsep" style="margin:0 2px"></div>
       <div class="dial-mini" onclick="toggleTheme()"><span id="ti">☀️</span></div>
-      <button class="hbtn run" onclick="runCode()">
-        <svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor"><polygon points="5 3 19 12 5 21 5 3"/></svg>
-        <span>Run</span>
-      </button>
     </div>
   </header>
 
@@ -299,16 +297,12 @@ body::before{content:'';position:fixed;inset:0;background-image:linear-gradient(
         <div id="line-numbers"><span class="ln active">1</span></div>
         <textarea id="code" spellcheck="false" autocomplete="off" autocorrect="off" autocapitalize="off">print("Hello, Beacon of Unity!")
 
-name = input("What's your name? ")
+name = input("What is your name? ")
 city = input("Which emirate are you from? ")
 
-print(f"\nSalam, {name} from {city}! 🌟")
+print("Hello " + name + " from " + city + "!")
 print("Welcome to Beacon of Unity Code.")
-print("Built with love by Anshuman Tripathy 🚀")
-print()
-
-for i in range(1, 6):
-    print(f"  {'⭐' * i}  Unity Level {i}")</textarea>
+print("Built by Anshuman Tripathy")</textarea>
       </div>
       <div id="resizer"></div>
       <div id="output-panel" style="height:220px;">
@@ -316,6 +310,9 @@ for i in range(1, 6):
           <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" opacity=".5"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg>
           <span class="output-title">Terminal</span>
           <div class="out-actions">
+            <button class="out-btn run-btn" onclick="runCode()" id="run-btn">
+              <svg width="10" height="10" viewBox="0 0 24 24" fill="currentColor"><polygon points="5 3 19 12 5 21 5 3"/></svg>Run
+            </button>
             <button class="out-btn" onclick="clearOutput()">
               <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/></svg>Clear
             </button>
@@ -406,7 +403,7 @@ for i in range(1, 6):
     document.addEventListener('mousemove',e=>{mx=e.clientX;my=e.clientY;cd.style.left=mx+'px';cd.style.top=my+'px'});
     (function t(){rx+=(mx-rx)*.14;ry+=(my-ry)*.14;cr.style.left=rx+'px';cr.style.top=ry+'px';requestAnimationFrame(t)})();
     function addHov(s){document.querySelectorAll(s).forEach(el=>{el.addEventListener('mouseenter',()=>document.body.classList.add('hov'));el.addEventListener('mouseleave',()=>document.body.classList.remove('hov'))})}
-    addHov('button,a,.tab,.sb-icon,.out-btn,.hbtn,.dial-mini,#bav-wrap');
+    addHov('button,a,.tab,.sb-icon,.out-btn,.hbtn,.dial-mini,#bav-wrap,.run-btn');
   }
 })();
 
@@ -429,12 +426,12 @@ const loMsg=document.getElementById('lo-msg'),overlay=document.getElementById('l
 
 async function initPyodide(){
   loMsg.textContent='Loading Pyodide runtime…';
-  pyodide = await loadPyodide();
+  pyodide = await loadPyodide({
+    stdout: (text) => { if(text !== undefined) writeLine(text, 'stdout'); },
+    stderr: (text) => { if(text !== undefined) writeLine(text, 'stderr'); }
+  });
   loMsg.textContent='Setting up environment…';
-  // Set up stream capture helpers in Python
-  await pyodide.runPythonAsync(`
-import sys, io, builtins
-`);
+  await pyodide.runPythonAsync('import sys, io, builtins');
   loMsg.textContent='Ready!';
   setTimeout(()=>overlay.classList.add('gone'),700);
   setStatus('Ready');
@@ -498,67 +495,34 @@ async function runCode(){
   inputQueue=[];currentInput=null;
   inputRow.classList.remove('visible');
   clearOutput();
-  writeLine('▶  Execution started','info');
+  writeLine('Execution started','info');
 
-  // Pass code safely via globals — no string escaping needed
+  // Pass code and input function safely via globals
   pyodide.globals.set('__user_code__', userCode);
-
-  // Pass the JS input function
-  pyodide.globals.set('__js_input__', (msg) => requestInput(String(msg||'')));
-
-  // Line-by-line stdout callback
-  pyodide.globals.set('__js_stdout__', (line) => {
-    // called for each chunk written to stdout
-    String(line).split('\n').forEach(l => writeLine(l, 'stdout'));
-  });
-  pyodide.globals.set('__js_stderr__', (line) => {
-    String(line).split('\n').forEach(l => { if(l) writeLine(l, 'stderr'); });
-  });
+  pyodide.globals.set('__js_input__', (msg) => requestInput(String(msg || '')));
 
   try {
     await pyodide.runPythonAsync(`
-import sys, io, builtins
+import sys, builtins
 
-# ── async input shim ──────────────────────────────────────
+_js_input_fn = __js_input__
+
 class _AsyncInput:
     async def __call__(self, prompt=""):
-        import js
-        val = await js.__js_input__(str(prompt))
-        return str(val)
+        result = await _js_input_fn(str(prompt))
+        return str(result)
 
 builtins.input = _AsyncInput()
 
-# ── stdout/stderr capture ────────────────────────────────
-class _JSWriter:
-    def __init__(self, cb_name):
-        self._cb = cb_name
-        self._buf = ""
-    def write(self, text):
-        import js
-        if text:
-            getattr(js, self._cb)(text)
-    def flush(self): pass
-
-_old_out = sys.stdout
-_old_err = sys.stderr
-sys.stdout = _JSWriter("__js_stdout__")
-sys.stderr  = _JSWriter("__js_stderr__")
-
 try:
-    exec(compile(__user_code__, "<beacon>", "exec"), {})
+    exec(compile(__user_code__, "<beacon>", "exec"), {"__name__": "__main__"})
 except SystemExit:
     pass
-except Exception as _e:
-    import traceback
-    sys.stderr.write(traceback.format_exc())
-finally:
-    sys.stdout = _old_out
-    sys.stderr = _old_err
 `);
-    writeLine('✔  Done','success');
+    writeLine('Done','success');
     setStatus('Ready');
   } catch(err) {
-    writeLine('Runtime error: '+err,'stderr');
+    // traceback already streamed to terminal via stderr callback
     setStatus('Error');
   }
 
@@ -578,33 +542,26 @@ function downloadCode(){
 const TAB_CONTENTS = {
   main: document.getElementById('code').value,
   intro: `# introduction.py
-# ─────────────────────────────────────────────────────────
+# --------------------------------------------------------
 #   Beacon of Unity Code
-#   A browser-based Python IDE — 100% powered by Pyodide.
+#   A browser-based Python IDE powered by Pyodide.
 #   Created by Anshuman Tripathy
-# ─────────────────────────────────────────────────────────
+# --------------------------------------------------------
 
-print("=" * 48)
-print("  Beacon of Unity Code")
-print("  Created by Anshuman Tripathy")
-print("=" * 48)
-print()
+print("Beacon of Unity Code")
+print("Created by Anshuman Tripathy")
+print("")
 print("This IDE runs Python entirely in your browser.")
-print("No server. No backend. Just Pyodide. 🚀")
-print()
+print("No server. No backend. Just Pyodide.")
+print("")
 print("Features:")
-features = [
-    "✅ Full Python 3.11 via Pyodide",
-    "✅ Inline terminal-style input()",
-    "✅ Copy & Download your code",
-    "✅ Light / Dark mode",
-    "✅ Beacon mascot physics engine",
-]
-for f in features:
-    print(" ", f)
-print()
-print("Ctrl + Enter  →  Run your code")
-print("Happy coding! 🌟")
+print("  - Full Python 3.11 via Pyodide")
+print("  - Inline terminal input()")
+print("  - Copy and Download your code")
+print("  - Light / Dark mode")
+print("  - Beacon mascot")
+print("")
+print("Press Ctrl + Enter to run your code.")
 `
 };
 let curTab='main';
